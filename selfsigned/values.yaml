@@ -1,22 +1,27 @@
+# SPDX-FileCopyrightText: 2026 SUSE LLC
+# SPDX-FileContributor: Cédric Bosdonnat
+#
+# SPDX-License-Identifier: MIT
+
 # Default credentials, make sure to set them
 credentials:
   admin:
     user: admin
     # password is the password for the product administrator user
-    # password:
+    password:
   db:
     internal:
       user: susemanager
       # password is the password for the user of the internal database
-      # password:
+      password:
     admin:
       user: postgres
       # password is the password for the admin user of postgresql
-      # password: 
+      password: 
     reportdb:
       user: pythia
       # password is the password for the user of the report database
-      # password:
+      password:
 
 global:
   # fqdn is the fully qualified name the server will answer as.
@@ -33,3 +38,6 @@ ssl:
   email: "admin@example.com"
 
 certManagerNamespace: "cert-manager"
+
+# All the server helm chart values can be passed under this property
+server-helm: {}
