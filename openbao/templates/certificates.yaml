@@ -1,0 +1,155 @@
+# SPDX-FileCopyrightText: 2026 SUSE LLC
+# SPDX-FileContributor: Cédric Bosdonnat
+#
+# SPDX-License-Identifier: MIT
+
+# ClusterIssuer using OpenBao Kubernetes Auth
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: "uyuni-openbao-issuer"
+  labels:
+    app.kubernetes.io/part-of: uyuni
+spec:
+  vault:
+    # URL to your OpenBao service in the cluster
+    server: {{ .Values.openbao.address | required "openbao.address is required" }}
+    # The path where you enabled the PKI engine
+    path: {{ .Values.openbao.pkiPath | default "pki/sign/uyuni-role" }}
+{{- if .Values.openbao.caSecret }}
+    caBundleSecretRef:
+      name: {{ .Values.openbao.caSecret.name }}
+      key: {{ default .Values.openbao.caSecret.key "ca.crt" }}
+{{- end }}
+    auth:
+      kubernetes:
+        # The role name you created in OpenBao (auth/kubernetes/role/...)
+        role: {{ .Values.openbao.roleName | default "uyuni-issuer-role" }}
+        mountPath: /v1/auth/kubernetes
+        serviceAccountRef:
+          name: openbao-issuer-sa
+---
+# Fetch the CA from OpenBao to distribute via trust-manager
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: openbao-ca-fetcher
+  namespace: {{ .Values.certManagerNamespace }}
+  labels:
+    app.kubernetes.io/part-of: uyuni
+spec:
+  isCA: true
+  commonName: root-ca.mgr.lab
+  secretName: openbao-ca
+  issuerRef:
+    name: "uyuni-openbao-issuer"
+    kind: ClusterIssuer
+    group: cert-manager.io
+  privateKey:
+    rotationPolicy: Never
+---
+# trust-manager bundle to create an uyuni-ca configmap from the uyuni-ca secret
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: uyuni-ca
+  labels:
+    app.kubernetes.io/part-of: uyuni
+spec:
+  sources:
+    - secret:
+        name: "openbao-ca"
+        key: "ca.crt"
+  target:
+    configMap:
+      key: "ca.crt"
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+---
+# trust-manager bundle to create a db-ca configmap from the uyuni-ca secret
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: db-ca
+  labels:
+    app.kubernetes.io/part-of: uyuni
+spec:
+  sources:
+    - secret:
+        name: "openbao-ca"
+        key: "ca.crt"
+  target:
+    configMap:
+      key: "ca.crt"
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+---
+# Certificate for apache
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: uyuni-cert
+  namespace: "{{ .Release.Namespace }}"
+  labels:
+    app.kubernetes.io/part-of: uyuni
+spec:
+  secretName: uyuni-cert
+  secretTemplate:
+    labels:
+      app.kubernetes.io/part-of: uyuni
+  isCA: false
+  usages:
+  - server auth
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+    rotationPolicy: Always
+  dnsNames:
+    - {{ required "global.fqdn is required!" .Values.global.fqdn }}
+  commonName: {{ required "global.fqdn is required!" .Values.global.fqdn }}
+  issuerRef:
+    name: "uyuni-openbao-issuer"
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# Certificate for the DB, using the CA issuer
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: db-cert
+  namespace: "{{ .Release.Namespace }}"
+  labels:
+    app.kubernetes.io/part-of: uyuni
+spec:
+  secretName: db-cert
+  secretTemplate:
+    labels:
+      app.kubernetes.io/part-of: uyuni
+  isCA: false
+  subject:
+    countries: [{{ .Values.ssl.country }}]
+    provinces: [{{ .Values.ssl.province }}]
+    localities: [{{ .Values.ssl.locality }}]
+    organizations: [{{ .Values.ssl.org }}]
+    organizationalUnits: [{{ .Values.ssl.orgUnit }}]
+  commonName: reportdb-{{ required "global.fqdn is required!" .Values.global.fqdn }}
+  emailAddresses: 
+    - {{ .Values.ssl.email }}
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+    rotationPolicy: Always
+  usages:
+  - server auth
+  dnsNames:
+    - db
+    - reportdb
+    - {{ required "global.fqdn is required!" .Values.global.fqdn }}
+  issuerRef:
+    name: "uyuni-openbao-issuer"
+    kind: ClusterIssuer
+    group: cert-manager.io
