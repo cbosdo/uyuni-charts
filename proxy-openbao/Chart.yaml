@@ -12,4 +12,4 @@ version: 5.2.0
 dependencies:
   - name: proxy-helm
     repository: oci://registry.suse.com/suse/multi-linux-manager/5.2/proxy-helm
-    version: 5.2.0-beta2
+    version: 5.2.0
